@@ -58,6 +58,7 @@ class Application:
         self.widget_x   = config.get("x", 100)
         self.widget_y   = config.get("y", 100)
         self.is_visible = config.get("visible", False)
+        self._drag_offset  = (0, 0)
 
         self.root = Tk()
         self.root.overrideredirect(True)
@@ -68,10 +69,13 @@ class Application:
 
         self.lab1 = Label(self.root, bg=self.bg_color)
         self.lab1.bind("<Button-3>", self.hide_window)
+        IP_W = 13   # max IPv4 length: 255.255.255.255
         self.lab2 = Label(self.root, bd=0, bg=self.bg_color, fg=self.fg_color,
-                          highlightthickness=0, borderwidth=0)
+                          highlightthickness=0, borderwidth=0,
+                          width=IP_W, anchor='center')
         self.lab3 = Label(self.root, bd=0, bg=self.bg_color, fg=self.fg_color,
-                          highlightthickness=0, borderwidth=0)
+                          highlightthickness=0, borderwidth=0,
+                          width=IP_W, anchor='center')
 
         self.lab1.grid(row=1, column=1)
         self.lab2.grid(row=2, column=1)
@@ -102,8 +106,9 @@ class Application:
         if not self.is_visible:
             self.root.withdraw()
 
-        self.root.bind("<B1-Motion>",      self.move_window)
-        self.root.bind("<ButtonRelease-1>", self.on_drag_end)
+        self.root.bind("<ButtonPress-1>",   self.on_drag_start)
+        self.root.bind("<B1-Motion>",          self.move_window)
+        self.root.bind("<ButtonRelease-1>",    self.on_drag_end)
 
         # Apply Win32 style after the window is fully mapped
         self.root.after(150, self.apply_window_style)
@@ -146,8 +151,13 @@ class Application:
 
     # ── Widget movement & position persistence ───────────────────────────────
 
+    def on_drag_start(self, event):
+        self._drag_offset = (event.x_root - self.root.winfo_x(),
+                             event.y_root - self.root.winfo_y())
+
     def move_window(self, event):
-        self.root.geometry(f'+{event.x_root}+{event.y_root}')
+        ox, oy = self._drag_offset
+        self.root.geometry(f'+{event.x_root - ox}+{event.y_root - oy}')
         self._sink_to_bottom()
 
     def on_drag_end(self, event):
@@ -198,6 +208,15 @@ class Application:
         self.icon.stop()
         self.root.destroy()
 
+    # ── Helpers ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _truncate(text, max_chars=18):
+        """Clip text to max_chars, appending … if truncated."""
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars - 1] + '\u2026'
+
     # ── IP fetching & UI update ──────────────────────────────────────────────
 
     def find_ip(self):
@@ -229,7 +248,7 @@ class Application:
         flag_path = f"{IMG_DIR}\\flags\\{ip['countryCode']}.png"
         self.lab1.image = ImageTk.PhotoImage(image=Image.open(flag_path))
         self.lab1.config(image=self.lab1.image)
-        self.lab2.config(text=ip["country"])
+        self.lab2.config(text=self._truncate(ip["country"], 15))
         self.lab3.config(text=ip["query"])
         self.icon.icon  = Image.open(flag_path)
         self.icon.title = ip["query"]
