@@ -18,6 +18,7 @@ WS_EX_TOOLWINDOW = 0x00000080   # hides from taskbar / Alt-Tab
 WS_EX_APPWINDOW  = 0x00040000
 WS_EX_NOACTIVATE = 0x08000000   # clicks don't activate / raise the window
 HWND_BOTTOM      = 1            # z-order: behind all normal windows
+HWND_TOPMOST     = -1           # z-order: above all normal windows
 SWP_NOSIZE       = 0x0001
 SWP_NOMOVE       = 0x0002
 SWP_NOACTIVATE   = 0x0010
@@ -34,12 +35,12 @@ def load_config():
         with open(CONFIG_FILE) as f:
             return json.load(f)
     except Exception:
-        return {"x": 100, "y": 100, "visible": False}
+        return {"x": 100, "y": 100, "visible": False, "on_top": False}
 
-def save_config(x, y, visible):
+def save_config(x, y, visible, on_top=False):
     try:
         with open(CONFIG_FILE, "w") as f:
-            json.dump({"x": x, "y": y, "visible": visible}, f)
+            json.dump({"x": x, "y": y, "visible": visible, "on_top": on_top}, f)
     except Exception:
         pass
 
@@ -58,6 +59,7 @@ class Application:
         self.widget_x   = config.get("x", 100)
         self.widget_y   = config.get("y", 100)
         self.is_visible = config.get("visible", False)
+        self.on_top      = config.get("on_top", False)
         self._drag_offset  = (0, 0)
 
         self.root = Tk()
@@ -93,13 +95,17 @@ class Application:
                 lambda item: 'Hide Widget' if self.is_visible else 'Show Widget',
                 self.toggle_window
             ),
+            MenuItem(
+                lambda item: 'Under all windows' if self.on_top else 'Over all windows',
+                self.toggle_on_top
+            ),
             MenuItem('Quit', self.quit_window),
         )
         self.icon.run_detached()
 
         # ── Window style / position ──────────────────────────────────────────
         self.root.attributes("-alpha", 0.7)
-        self.root.attributes('-topmost', False)
+        self.root.attributes('-topmost', self.on_top)
         self.root.configure(bg=self.bg_color)
         self.root.geometry(f'+{self.widget_x}+{self.widget_y}')
 
@@ -123,20 +129,27 @@ class Application:
         return hwnd if hwnd else self.root.winfo_id()
 
     def apply_window_style(self):
-        """Remove taskbar button, prevent focus steal, sink to bottom z-order."""
+        """Remove taskbar button, prevent focus steal, apply z-order."""
         hwnd = self._get_hwnd()
         style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
         style = (style & ~WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
         ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
-        self._sink_to_bottom()
+        self._apply_z_order()
+
+    def _apply_z_order(self):
+        """Sink to bottom or float on top depending on self.on_top."""
+        if self.on_top:
+            self.root.attributes('-topmost', True)
+        else:
+            self.root.attributes('-topmost', False)
+            hwnd = self._get_hwnd()
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, HWND_BOTTOM, 0, 0, 0, 0,
+                SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+            )
 
     def _sink_to_bottom(self):
-        """Push window behind all normal windows (above wallpaper)."""
-        hwnd = self._get_hwnd()
-        ctypes.windll.user32.SetWindowPos(
-            hwnd, HWND_BOTTOM, 0, 0, 0, 0,
-            SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
-        )
+        self._apply_z_order()
 
     # ── Theme ────────────────────────────────────────────────────────────────
 
@@ -163,7 +176,14 @@ class Application:
     def on_drag_end(self, event):
         self.widget_x = self.root.winfo_x()
         self.widget_y = self.root.winfo_y()
-        save_config(self.widget_x, self.widget_y, self.is_visible)
+        save_config(self.widget_x, self.widget_y, self.is_visible, self.on_top)
+
+    # ── Z-order toggle ───────────────────────────────────────────────────────
+
+    def toggle_on_top(self, icon=None, item=None):
+        self.on_top = not self.on_top
+        self.root.after(0, self._apply_z_order)
+        save_config(self.root.winfo_x(), self.root.winfo_y(), self.is_visible, self.on_top)
 
     # ── Show / Hide ──────────────────────────────────────────────────────────
 
@@ -177,12 +197,12 @@ class Application:
         self.is_visible = True
         self.root.deiconify()
         self.root.after(50, self.apply_window_style)
-        save_config(self.root.winfo_x(), self.root.winfo_y(), True)
+        save_config(self.root.winfo_x(), self.root.winfo_y(), True, self.on_top)
 
     def _hide(self):
         self.is_visible = False
         self.root.withdraw()
-        save_config(self.root.winfo_x(), self.root.winfo_y(), False)
+        save_config(self.root.winfo_x(), self.root.winfo_y(), False, self.on_top)
 
     def hide_window(self, event):
         self._hide()
@@ -201,7 +221,7 @@ class Application:
     # ── Quit ─────────────────────────────────────────────────────────────────
 
     def quit_window(self, icon=None, item=None):
-        save_config(self.root.winfo_x(), self.root.winfo_y(), self.is_visible)
+        save_config(self.root.winfo_x(), self.root.winfo_y(), self.is_visible, self.on_top)
         self.stop_program = True
         self.icon.icon = None
         self.icon.title = None
