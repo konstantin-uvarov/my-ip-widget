@@ -258,11 +258,19 @@ class Application:
                 if ip_address != self.last_ip:
                     self.last_ip = ip_address
                     self.root.after(0, lambda d=ip: self._update_ui(d))
+                else:
+                    self._update_tray(ip)
             else:
                 self.current_ip = None
                 self.last_ip = None
                 self.root.after(0, self._update_ui_offline)
             time.sleep(5)
+
+    def _update_tray(self, ip):
+        """Update tray icon and tooltip (safe to call from any thread)."""
+        flag_path = f"{IMG_DIR}\\flags\\{ip['countryCode']}.png"
+        self.icon.icon  = Image.open(flag_path)
+        self.icon.title = ip["query"]
 
     def _update_ui(self, ip):
         flag_path = f"{IMG_DIR}\\flags\\{ip['countryCode']}.png"
@@ -270,8 +278,7 @@ class Application:
         self.lab1.config(image=self.lab1.image)
         self.lab2.config(text=self._truncate(ip["country"], 15))
         self.lab3.config(text=ip["query"])
-        self.icon.icon  = Image.open(flag_path)
-        self.icon.title = ip["query"]
+        self._update_tray(ip)
 
     def _update_ui_offline(self):
         self.lab1.image = ImageTk.PhotoImage(file=PIRATE_FLAG)
