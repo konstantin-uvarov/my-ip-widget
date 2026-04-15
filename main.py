@@ -12,6 +12,9 @@ import pystray
 from pystray import Icon as Icon, MenuItem as MenuItem
 import darkdetect
 
+# ── DPI awareness (must be set before any window is created) ─────────────────
+ctypes.windll.shcore.SetProcessDpiAwareness(2)   # Per-Monitor DPI Aware v2
+
 # ── Windows API constants ────────────────────────────────────────────────────
 GWL_EXSTYLE      = -20
 WS_EX_TOOLWINDOW = 0x00000080   # hides from taskbar / Alt-Tab
@@ -63,6 +66,12 @@ class Application:
         self._drag_offset  = (0, 0)
 
         self.root = Tk()
+
+        # Clamp position to visible screen area
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        self.widget_x = max(0, min(self.widget_x, screen_w - 50))
+        self.widget_y = max(0, min(self.widget_y, screen_h - 50))
         self.root.overrideredirect(True)
         self.root.title("MyIP Widget")
         self.root.iconbitmap(f"{IMG_DIR}\\icon.ico")
