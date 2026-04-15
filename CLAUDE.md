@@ -8,17 +8,22 @@ Build the exe with PyInstaller:
 pyinstaller MyIPWidget.spec
 ```
 
-## Code Signing
+## Smart App Control (SAC)
 
-The exe must be signed to run on Windows 11 with Smart App Control enabled.
+Windows 11 with Smart App Control (SAC) in enforcement mode blocks executables that lack cloud reputation. Key findings:
 
-A self-signed certificate `CN=MyIPWidget` is installed in the user's certificate store (thumbprint: `BB4E35EFA194B0BAFD83EB7C7004DA20C7A667D5`). It has been added to `Cert:\CurrentUser\Root` and `Cert:\CurrentUser\TrustedPublisher`.
+- **Self-signed certificates do not work with SAC.** SAC treats a self-signed cert as an untrusted root (`VerificationError: 18`) and blocks the exe — worse than leaving it unsigned.
+- **WDAC supplemental policies do not work.** The deployed SAC policy has `Allow Supplemental Policies` disabled (bit 17 = 0) and requires signed policies (bit 6 = 0), so custom supplemental policies are silently rejected.
+- **Developer Mode alone does not help** when the exe is signed with a self-signed cert.
 
-After each build, sign the exe:
+### What works
 
-```powershell
-$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Where-Object { $_.Subject -eq "CN=MyIPWidget" }
-Set-AuthenticodeSignature -FilePath "C:\Users\uk\apps\My-IP-Widget\dist\MyIPWidget.exe" -Certificate $cert
-```
+1. **Do not sign the exe.** Leave it unsigned after building with PyInstaller.
+2. **Enable Windows Developer Mode:** Settings → System → For developers → Developer Mode → On.
 
-The status should show **Valid**. If not, ensure the certificate is still in the Root and TrustedPublisher stores.
+With Developer Mode enabled and the exe unsigned, SAC allows locally-built executables to run.
+
+### What would also work (not currently used)
+
+- A commercially-trusted code signing certificate (e.g. Certum ~€50/yr) would give the exe cloud reputation and pass SAC without Developer Mode.
+- Disabling SAC entirely (one-way — cannot be re-enabled without Windows reinstall).
