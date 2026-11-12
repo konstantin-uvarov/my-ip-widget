@@ -249,14 +249,50 @@ class Application:
     # ── IP fetching & UI update ──────────────────────────────────────────────
 
     def find_ip(self):
+        """Return {"query", "country", "countryCode"} or False when offline.
+
+        The public IP comes from ipify (cheap, unlimited) on every poll; the
+        country is looked up only when the IP changes. ipwho.is is the primary
+        geo source because ip-api.com's database misplaces some ranges (e.g. a
+        Canadian VPN exit reported as Malaysia); ip-api is kept as a fallback.
+        """
         try:
-            req = requests.get("http://ip-api.com/json/", timeout=REQUEST_TIMEOUT)
-            if req.status_code == 200:
-                return req.json()
-            return False
+            req = requests.get("https://api.ipify.org", timeout=REQUEST_TIMEOUT)
+            req.raise_for_status()
+            ip_address = req.text.strip()
         except Exception as e:
             print(e)
             return False
+
+        cached = getattr(self, "_geo_cache", None)
+        if cached and cached["query"] == ip_address:
+            return cached
+
+        geo = self._lookup_geo(ip_address)
+        if geo:
+            self._geo_cache = geo
+        return geo
+
+    @staticmethod
+    def _lookup_geo(ip_address):
+        try:
+            data = requests.get(
+                f"https://ipwho.is/{ip_address}?fields=success,country,country_code",
+                timeout=REQUEST_TIMEOUT).json()
+            if data.get("success"):
+                return {"query": ip_address, "country": data["country"],
+                        "countryCode": data["country_code"]}
+        except Exception as e:
+            print(e)
+        try:
+            data = requests.get(f"http://ip-api.com/json/{ip_address}",
+                                timeout=REQUEST_TIMEOUT).json()
+            if data.get("status") == "success":
+                return {"query": ip_address, "country": data["country"],
+                        "countryCode": data["countryCode"]}
+        except Exception as e:
+            print(e)
+        return False
 
     def update_data(self):
         while not self.stop_program:
